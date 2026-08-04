@@ -1,0 +1,18 @@
+{
+  "source": "recorded_trajectory.json",
+  "output": "recorded_trajectory_safe_ik.json",
+  "path_mode": "certify_trajectory_gradient_descent_d1.5",
+  "pipe_pos": [
+    6.6301,
+    0.0,
+    -1.2
+  ],
+  "pipe_clearance": 1.2,
+  "waypoint_count": 64,
+  "frame_count": 850,
+  "max_fk_error_m": 0.6114490791556076,
+  "q4_raw_range": [
+    -1.7586138325579024,
+    0.4433
+  ]
+}

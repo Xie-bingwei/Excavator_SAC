@@ -1,0 +1,1175 @@
+using AGXUnity.Sensor;
+using AGXUnity.Utils;
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using UnityEngine;
+using Debug = UnityEngine.Debug;
+
+namespace AGXUnity
+{
+  public enum LogLevel
+  {
+    Debug = 1,
+    Info = 2,
+    Warning = 4,
+    Error = 8
+  };
+
+  /// <summary>
+  /// Simulation object, either explicitly created and added or
+  /// implicitly created when first used.
+  /// </summary>
+  [AddComponentMenu( "" )]
+  [HelpURL( "https://us.download.algoryx.se/AGXUnity/documentation/current/editor_interface.html#simulation-manager" )]
+  public class Simulation : UniqueGameObject<Simulation>
+  {
+    /// <summary>
+    /// Native instance.
+    /// </summary>
+    private agxSDK.Simulation m_simulation = null;
+    private agx.DynamicsSystem m_system = null;
+    private agxCollide.Space m_space = null;
+
+    public enum AutoSteppingModes
+    {
+      /// <summary>
+      /// Simulation step from FixedUpdate. By default Time.fixedDeltaTime is
+      /// 0.02 and Time.fixedDeltaTime will be used as time step size.
+      /// </summary>
+      FixedUpdate,
+      /// <summary>
+      /// Simulation step from Update. Update callback is executed each frame,
+      /// e.g, 60 Hz with VSync enabled on a 60 Hz monitor. Step forward is called when
+      /// the elapsed time exceeds the time step size.
+      /// </summary>
+      Update,
+      /// <summary>
+      /// Simulation step invoked manually by the user.
+      /// Previously EnableAutoStepping = false.
+      /// </summary>
+      Disabled
+    }
+
+    [SerializeField]
+    private AutoSteppingModes m_autoSteppingMode = AutoSteppingModes.FixedUpdate;
+
+    /// <summary>
+    /// Simulation step mode.
+    /// </summary>
+    [HideInInspector]
+    public AutoSteppingModes AutoSteppingMode
+    {
+      get => m_autoSteppingMode;
+      set => m_autoSteppingMode = value;
+    }
+
+    [SerializeField]
+    private float m_fixedUpdateRealTimeFactor = 0.0f;
+
+    /// <summary>
+    /// Value defining the maximum time we may spend in FixedUpdate. Setting
+    /// this value to 1.0 means we may not spend more time than Time.fixedDeltaTime,
+    /// resulting in slow-motion looking simulations when the simulation time is
+    /// high - but the rendering FPS is still (relatively) high. Default: 0.0, disabled.
+    /// 
+    /// 0.0: Disabled - every FixedUpdate callback will call simulation.stepForward().
+    /// 0.333: Three times fixedDeltaTime may be spent stepping the simulation.
+    /// 1.0: Additional FixedUpdate callbacks before Update will be ignored if the
+    ///      simulation stepping time is high.
+    /// </summary>
+    [HideInInspector]
+    public float FixedUpdateRealTimeFactor
+    {
+      get => m_fixedUpdateRealTimeFactor;
+      set => m_fixedUpdateRealTimeFactor = Mathf.Max( value, 0.0f );
+    }
+
+    [SerializeField]
+    private float m_updateRealTimeCorrectionFactor = 0.9f;
+
+    /// <summary>
+    /// Given 60 Hz, 1 frame VSync, the Update callbacks will be executed in 58 - 64 Hz.
+    /// This value scales the time since last frame so that we don't lose a stepForward
+    /// call when Update is called > 60 Hz. Default: 0.9.
+    /// </summary>
+    [HideInInspector]
+    public float UpdateRealTimeCorrectionFactor
+    {
+      get => m_updateRealTimeCorrectionFactor;
+      set => m_updateRealTimeCorrectionFactor = Mathf.Max( value, 0.0f );
+    }
+
+    /// <summary>
+    /// Gravity, default -9.82 in y-direction. Paired with property Gravity.
+    /// </summary>
+    [SerializeField]
+    Vector3 m_gravity = new Vector3( 0, -9.82f, 0 );
+
+    /// <summary>
+    /// Get or set gravity in this simulation. Default -9.82 in y-direction.
+    /// </summary>
+    public Vector3 Gravity
+    {
+      get => m_gravity;
+      set
+      {
+        m_gravity = value;
+        if ( m_simulation != null )
+          m_simulation.setUniformGravity( m_gravity.ToVec3() );
+      }
+    }
+
+    /// <summary>
+    /// Time step size is the default callback frequency in Unity.
+    /// </summary>
+    [SerializeField]
+    private float m_timeStep = 0.02f;
+
+    /// <summary>
+    /// Get or set time step size. Note that the time step has to
+    /// match Unity update frequency.
+    /// </summary>
+    [HideInInspector]
+    public float TimeStep
+    {
+      get => m_timeStep;
+      set
+      {
+        m_timeStep = Mathf.Max( value, 1.0E-8f );
+        if ( m_simulation != null )
+          m_simulation.setTimeStep( m_timeStep );
+      }
+    }
+
+    [SerializeField]
+    private SolverSettings m_solverSettings = null;
+
+    /// <summary>
+    /// Get or set solver settings.
+    /// </summary>
+    [AllowRecursiveEditing]
+    [IgnoreSynchronization]
+    public SolverSettings SolverSettings
+    {
+      get => m_solverSettings;
+      set
+      {
+        if ( m_solverSettings != null ) {
+          m_solverSettings.SetSimulation( null );
+          if ( value == null )
+            SolverSettings.AssignDefault( m_simulation );
+        }
+
+        m_solverSettings = value;
+
+        if ( m_solverSettings != null && m_simulation != null ) {
+          m_solverSettings.SetSimulation( m_simulation );
+          m_solverSettings.GetInitialized<SolverSettings>();
+        }
+      }
+    }
+
+    /// <summary>
+    /// Set true to integrate positions at the start of the timestep rather than at the end. 
+    /// </summary>
+    [SerializeField]
+    private bool m_preIntegratePositions = false;
+
+    /// <summary>
+    /// Set true to integrate positions at the start of the timestep rather than at the end. 
+    /// </summary>
+    [Tooltip( "Set true to integrate positions at the start of the timestep rather than at the end. " )]
+    public bool PreIntegratePositions
+    {
+      get => m_preIntegratePositions;
+      set
+      {
+        m_preIntegratePositions = value;
+
+        if ( m_simulation != null )
+          m_simulation.setPreIntegratePositions( m_preIntegratePositions );
+      }
+    }
+
+    /// <summary>
+    /// Display statistics window toggle.
+    /// </summary>
+    [SerializeField]
+    private bool m_displayStatistics = false;
+
+    /// <summary>
+    /// Enable/disable statistics window showing timing and simulation data.
+    /// </summary>
+    [HideInInspector]
+    public bool DisplayStatistics
+    {
+      get => m_displayStatistics;
+      set
+      {
+        m_displayStatistics = value;
+
+        if ( m_displayStatistics && m_statisticsWindowData == null )
+          m_statisticsWindowData = new StatisticsWindowData( new Rect( new Vector2( 10, 10 ),
+                                                                       new Vector2( 278, 236 ) ),
+                                                             new Rect( new Vector2( 10, 10 ),
+                                                                       new Vector2( 278, 320 ) ) );
+        else if ( !m_displayStatistics && m_statisticsWindowData != null ) {
+          m_statisticsWindowData.Dispose();
+          m_statisticsWindowData = null;
+        }
+      }
+    }
+
+    [SerializeField]
+    [Min(1)]
+    private int m_statisticsMovingAverage = 50;
+
+    /// <summary>
+    /// If larger than 1, will use moving average for statistics display by showing average of this number of the last values
+    /// </summary>
+    [HideInInspector]
+    public int StatisticsMovingAverageCount
+    {
+      get => m_statisticsMovingAverage;
+      set => m_statisticsMovingAverage = value;
+    }
+
+    [SerializeField]
+    [UnityEngine.Serialization.FormerlySerializedAs( "m_memorySnapEnabled" )]
+    bool m_displayMemoryAllocations = false;
+
+    /// <summary>
+    /// Enable/disable track of memory allocations during DoStep. If enabled,
+    /// the collected data will be shown in the statistics window.
+    /// </summary>
+    [HideInInspector]
+    public bool DisplayMemoryAllocations
+    {
+      get => m_displayMemoryAllocations;
+      set => m_displayMemoryAllocations = value;
+    }
+
+    private bool TrackMemoryAllocations
+    {
+      get => DisplayMemoryAllocations && DisplayStatistics;
+    }
+
+    [SerializeField]
+    private bool m_enableMergeSplitHandler = false;
+    public bool EnableMergeSplitHandler
+    {
+      get => m_enableMergeSplitHandler;
+      set
+      {
+        m_enableMergeSplitHandler = value;
+        if ( m_simulation != null )
+          m_simulation.getMergeSplitHandler().setEnable( m_enableMergeSplitHandler );
+      }
+    }
+
+    [SerializeField]
+    private bool m_savePreFirstStep = false;
+    [HideInInspector]
+    public bool SavePreFirstStep
+    {
+      get => m_savePreFirstStep;
+      set => m_savePreFirstStep = value;
+    }
+
+    [SerializeField]
+    private string m_savePreFirstStepPath = string.Empty;
+    [HideInInspector]
+    public string SavePreFirstStepPath
+    {
+      get => m_savePreFirstStepPath;
+      set => m_savePreFirstStepPath = value;
+    }
+
+    [SerializeField]
+    private bool m_logEnabled = false;
+
+    [HideInInspector]
+    [IgnoreSynchronization]
+    public bool LogEnabled
+    {
+      get => m_logEnabled;
+      set
+      {
+        if ( value == m_logEnabled ) return;
+        m_logEnabled = value;
+        OpenLogFileIfEnabled();
+      }
+    }
+
+    [SerializeField]
+    private string m_logPath  = "";
+
+    [HideInInspector]
+    [IgnoreSynchronization]
+    public string LogPath
+    {
+      get => m_logPath;
+      set
+      {
+        if ( value == m_logPath ) return;
+        m_logPath = value;
+        OpenLogFileIfEnabled();
+      }
+    }
+
+    private LogAdapter m_logAdapter = null;
+
+    [SerializeField]
+    private bool m_logToUnityConsole = false;
+
+    [HideInInspector]
+    [IgnoreSynchronization]
+    public bool LogToUnityConsole
+    {
+      get => m_logToUnityConsole;
+      set
+      {
+        if ( value == m_logToUnityConsole ) return;
+        m_logToUnityConsole = value;
+
+        if ( m_simulation == null ) return;
+
+        if ( m_logToUnityConsole )
+          m_logAdapter = new LogAdapter( this, m_agxUnityLogLevel, DisableMeshCreationWarnings );
+        else {
+          m_logAdapter?.RemoveFromSimulation( this );
+          m_logAdapter = null;
+        }
+      }
+    }
+
+    [SerializeField]
+    private LogLevel m_agxUnityLogLevel = LogLevel.Info;
+
+    [HideInInspector]
+    [IgnoreSynchronization]
+    public LogLevel AGXUnityLogLevel
+    {
+      get => m_agxUnityLogLevel;
+      set
+      {
+        m_agxUnityLogLevel = value;
+
+        if ( m_logAdapter != null )
+          m_logAdapter.LogLevel = value;
+      }
+    }
+
+    [SerializeField]
+    private bool m_disableMeshCreationWarnings = false;
+
+    [HideInInspector]
+    public bool DisableMeshCreationWarnings
+    {
+      get
+      {
+        if ( m_logAdapter != null )
+          m_disableMeshCreationWarnings = m_logAdapter.DisableMeshCreationWarnings;
+        return m_disableMeshCreationWarnings;
+      }
+      set
+      {
+        m_disableMeshCreationWarnings = value;
+        if ( m_logAdapter != null )
+          m_logAdapter.DisableMeshCreationWarnings = value;
+      }
+    }
+
+    [SerializeField]
+    private bool m_enableWebDebugging = false;
+
+    /// <summary>
+    /// Enable/disable the web debugging of this simulation instance.
+    /// </summary>
+    [IgnoreSynchronization]
+    [HideInInspector]
+    public bool EnableWebDebugging
+    {
+      get => m_enableWebDebugging;
+      set
+      {
+        if ( m_enableWebDebugging == value )
+          return;
+        m_enableWebDebugging = value;
+        if ( m_simulation != null )
+          Native.setEnableWebDebugger( m_enableWebDebugging, m_webDebuggingPort );
+      }
+    }
+
+    [SerializeField]
+    private ushort m_webDebuggingPort = 9001;
+
+    /// <summary>
+    /// When web debugging is enabled, this property specifies which port the simulation will use to communicate with the debugging client.
+    /// </summary>
+    [IgnoreSynchronization]
+    [HideInInspector]
+    public ushort WebDebuggingPort
+    {
+      get => m_webDebuggingPort;
+      set
+      {
+        if ( m_webDebuggingPort == value )
+          return;
+        m_webDebuggingPort = value;
+        if ( m_simulation != null )
+          Native.setEnableWebDebugger( EnableWebDebugging, m_webDebuggingPort );
+      }
+    }
+
+    /// <summary>
+    /// Calling this method will spin up a temporary web server which will serve the Web Debugger web page which will then be opened
+    /// in a browser. Note that calling this method multiple times in short succession might cause it to fail as the previous server 
+    /// might not have been stopped yet.
+    /// </summary>
+    /// <param name="port">The port on which to serve the web debugger client</param>
+    /// <param name="timeoutms">how long to wait for the Web server to spin up until the launch attempt is considered failed</param>
+    public static void LaunchWebDebugger( ushort port = 5173, uint timeoutms = 500 )
+    {
+      // Spin up a temp web server. This will be cleaned up when the object is GCed.
+      var server = new agxNet.WebDebuggerServer( port, "" );
+      try {
+        server.start();
+        var startTime  = System.DateTime.Now;
+
+        // Spinlock while waiting for the server to start
+        while ( !server.isRunning() && ( DateTime.Now -  startTime ).TotalMilliseconds < timeoutms ) { }
+
+        // Ensure that the server started properly
+        if ( !server.isRunning() ) {
+          Debug.LogError( "Failed to launch Web Debugger (timeout)" );
+          return;
+        }
+
+        Application.OpenURL( $"http://localhost:{port}" );
+      }
+      catch ( ApplicationException ) {
+        Debug.LogError( "Failed to launch Web Debugger" );
+      }
+    }
+
+    /// <summary>
+    /// Get the native instance, if not deleted.
+    /// </summary>
+    public agxSDK.Simulation Native => GetOrCreateSimulation();
+
+    /// <summary>
+    /// Step callback interface for this simulation. Valid use from "initialize" to "Destroy".
+    /// </summary>
+    public StepCallbackFunctions StepCallbacks { get; } = new StepCallbackFunctions();
+
+    /// <summary>
+    /// Contact callbacks interface for this simulation.
+    /// </summary>
+    public ContactEventHandler ContactCallbacks { get; } = new ContactEventHandler();
+
+
+    /// <summary>
+    /// Save current simulation/scene to an AGX native file (.agx or .aagx).
+    /// </summary>
+    /// <param name="filename">Filename including path.</param>
+    /// <returns>True if objects were written to file - otherwise false.</returns>
+    public bool SaveToNativeFile( string filename )
+    {
+      if ( m_simulation == null ) {
+        Debug.LogWarning( Utils.GUI.AddColorTag( $"Unable to write {filename}: Simulation isn't active.",
+                                                 Color.yellow ),
+                          this );
+        return false;
+      }
+
+      FileInfo file = new FileInfo( filename );
+      if ( !file.Directory.Exists ) {
+        Debug.LogWarning( Utils.GUI.AddColorTag( $"Unable to write {filename}: Directory doesn't exist.",
+                                                 Color.yellow ) );
+        return false;
+      }
+
+      if ( file.Extension.ToUpper() != ".AGX" && file.Extension.ToUpper() != ".AAGX" ) {
+        Debug.LogWarning( Utils.GUI.AddColorTag( $"Unable to write {filename}: File extension {file.Extension} is unknown. ",
+                                                 Color.yellow ) +
+                          "Valid extensions are .agx and .aagx." );
+        return false;
+      }
+
+      uint numObjects = m_simulation.write( file.FullName );
+      return numObjects > 0;
+    }
+
+    /// <summary>
+    /// Perform explicit simulation step.
+    /// </summary>
+    /// <remarks>
+    /// Calling this method when AutoSteppingMode != AutoSteppingModes.Disabled will
+    /// result in several steps being made each update loop.
+    /// </remarks>
+    public void DoStep()
+    {
+      if ( AutoSteppingMode != AutoSteppingModes.Disabled )
+        Debug.LogWarning( "Explicit call to Simulation.DoStep() when auto stepping mode is enabled.", this );
+
+      DoStepInternal();
+    }
+
+    private agx.Timer m_stepForwardTimer = null;
+
+    protected override bool Initialize()
+    {
+      GetOrCreateSimulation();
+
+      m_stepForwardTimer = new agx.Timer();
+
+      return true;
+    }
+
+    protected override void OnDestroy()
+    {
+      base.OnDestroy();
+
+      if ( m_simulation != null ) {
+        StepCallbacks.OnDestroy( m_simulation );
+        ContactCallbacks.OnDestroy( this );
+        if ( m_solverSettings != null )
+          m_solverSettings.SetSimulation( null );
+        if ( SensorEnvironment.HasInstance )
+          SensorEnvironment.Instance.DisposeRT();
+        m_simulation.setSensorEnvironment( null );
+        m_simulation.cleanup();
+      }
+      m_simulation = null;
+    }
+
+    protected override void OnApplicationQuit()
+    {
+      base.OnApplicationQuit();
+
+      if ( m_simulation != null ) {
+        if ( SensorEnvironment.HasInstance )
+          SensorEnvironment.Instance.DisposeRT();
+        m_simulation.setSensorEnvironment( null );
+        m_simulation.cleanup();
+      }
+    }
+
+    private agxSDK.Simulation GetOrCreateSimulation()
+    {
+      if ( m_simulation == null ) {
+        Application.logMessageReceived += InterceptAGXException;
+
+        NativeHandler.Instance.MakeMainThread();
+
+        m_simulation = new agxSDK.Simulation();
+        m_space = m_simulation.getSpace();
+        m_system = m_simulation.getDynamicsSystem();
+
+        // Since AGXUnity.Simulation is optional in the hierarchy
+        // we have to synchronize fixedDeltaTime here if SimulationTool
+        // never has been seen in the inspector.
+        if ( AutoSteppingMode == AutoSteppingModes.FixedUpdate )
+          TimeStep = Time.fixedDeltaTime;
+
+        // Solver settings will assign number of threads.
+        if ( m_solverSettings != null ) {
+          m_solverSettings.SetSimulation( m_simulation );
+          m_solverSettings.GetInitialized<SolverSettings>();
+        }
+        // No solver settings - set the default.
+        else
+          agx.agxSWIG.setNumThreads( Convert.ToUInt32( SolverSettings.DefaultNumberOfThreads ) );
+
+        StepCallbacks.OnInitialize( m_simulation );
+        ContactCallbacks.OnInitialize( this );
+
+        // Initialize logger if enabled
+        OpenLogFileIfEnabled();
+        if ( m_logToUnityConsole )
+          m_logAdapter = new LogAdapter( this, m_agxUnityLogLevel, DisableMeshCreationWarnings );
+
+        if ( EnableWebDebugging )
+          m_simulation.setEnableWebDebugger( true, m_webDebuggingPort );
+      }
+
+      return m_simulation;
+    }
+
+    private void InterceptAGXException( string condition, string stackTrace, LogType type )
+    {
+      if ( type == LogType.Exception && condition.StartsWith( "ApplicationException" ) ) {
+        Debug.LogError(
+          "AGX threw an exception. Simulation state is likely corrupt, shutting down application. Please refer to the AGX and Unity logs for more information.\n" +
+          "<b>AGX Exception:</b> " + condition + "\n" +
+          "<b>Stack trace:</b> \n" +
+          stackTrace
+        );
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.ExitPlaymode();
+#else
+        Application.Quit();
+#endif
+      }
+    }
+
+    private void FixedUpdate()
+    {
+      var doFixedStep = AutoSteppingMode == AutoSteppingModes.FixedUpdate &&
+                        (
+                          // First time step.
+                          !m_stepForwardTimer.isRunning() ||
+                          // Do step as long as this FixedUpdate hasn't been called
+                          // several times exceeding wall clock time > factor * time step size.
+                          0.001f * (float)m_stepForwardTimer.getTime() / TimeStep <= 1.0f / FixedUpdateRealTimeFactor
+                        );
+      if ( doFixedStep ) {
+        if ( !m_stepForwardTimer.isRunning() )
+          m_stepForwardTimer.start();
+
+        DoStepInternal();
+      }
+    }
+
+    private void Update()
+    {
+      // Resetting timer during AutoSteppingMode == FixedUpdate, flagging
+      // that next call to FixedUpdate may step the simulation.
+      if ( AutoSteppingMode != AutoSteppingModes.Update ) {
+        m_stepForwardTimer.reset();
+        return;
+      }
+
+      var currTime = 0.001f * (float)m_stepForwardTimer.getTime();
+      var performStep = AutoSteppingMode == AutoSteppingModes.Update &&
+                        (
+                          // First step.
+                          !m_stepForwardTimer.isRunning() ||
+                          // Time since last call exceeds the time step size.
+                          currTime >= UpdateRealTimeCorrectionFactor * TimeStep
+                        );
+      if ( performStep ) {
+        m_stepForwardTimer.reset( true );
+        DoStepInternal();
+      }
+    }
+
+    private void DoStepInternal()
+    {
+      if ( !NativeHandler.Instance.HasValidLicense || m_simulation == null )
+        return;
+
+      PreStepForward();
+      InvokeStepForward();
+      PostStepForward();
+    }
+
+    private void PreStepForward()
+    {
+      bool savePreFirstTimeStep = Application.isEditor &&
+                                  SavePreFirstStep &&
+                                  SavePreFirstStepPath != string.Empty &&
+                                  m_simulation.getTimeStamp() == 0.0;
+      if ( savePreFirstTimeStep ) {
+        var saveSuccess = SaveToNativeFile( SavePreFirstStepPath );
+        if ( saveSuccess )
+          Debug.Log( Utils.GUI.AddColorTag( "Successfully wrote initial state to: ", Color.green ) +
+                     new FileInfo( SavePreFirstStepPath ).FullName );
+      }
+
+      agx.Timer timer = null;
+      if ( DisplayStatistics )
+        timer = new agx.Timer( true );
+
+      if ( TrackMemoryAllocations )
+        MemoryAllocations.Snap( MemoryAllocations.Section.Begin );
+
+      if ( StepCallbacks.PreStepForward != null )
+        StepCallbacks.PreStepForward.Invoke();
+
+      if ( TrackMemoryAllocations )
+        MemoryAllocations.Snap( MemoryAllocations.Section.PreStepForward );
+
+      if ( StepCallbacks._Internal_OpenPLXSignalPreSync != null )
+        StepCallbacks._Internal_OpenPLXSignalPreSync.Invoke();
+
+      if ( StepCallbacks.PreSynchronizeTransforms != null )
+        StepCallbacks.PreSynchronizeTransforms.Invoke();
+
+      if ( TrackMemoryAllocations )
+        MemoryAllocations.Snap( MemoryAllocations.Section.PreSynchronizeTransforms );
+
+      if ( timer != null )
+        timer.stop();
+    }
+
+    private void InvokeStepForward()
+    {
+      agx.agxSWIG.setEntityCreationThreadSafe( false );
+
+      m_simulation.stepForward();
+
+      agx.agxSWIG.setEntityCreationThreadSafe( true );
+    }
+
+    private void PostStepForward()
+    {
+      agx.Timer timer = null;
+      if ( DisplayStatistics )
+        timer = new agx.Timer( true );
+
+      if ( TrackMemoryAllocations )
+        MemoryAllocations.Snap( MemoryAllocations.Section.StepForward );
+
+      if ( !Simulation.Instance.PreIntegratePositions ) {
+        StepCallbacks._Internal_PostSynchronizeTransform?.Invoke();
+        StepCallbacks.PostSynchronizeTransforms?.Invoke();
+      }
+
+      if ( StepCallbacks._Internal_OpenPLXSignalPostSync != null )
+        StepCallbacks._Internal_OpenPLXSignalPostSync.Invoke();
+
+      if ( TrackMemoryAllocations )
+        MemoryAllocations.Snap( MemoryAllocations.Section.PostSynchronizeTransforms );
+
+      if ( StepCallbacks.PostStepForward != null )
+        StepCallbacks.PostStepForward.Invoke();
+
+      if ( TrackMemoryAllocations )
+        MemoryAllocations.Snap( MemoryAllocations.Section.PostStepForward );
+
+      Rendering.DebugRenderManager.OnActiveSimulationPostStep( m_simulation );
+
+      if ( timer != null ) {
+        timer.stop();
+        m_statisticsWindowData.ManagedStepForward = Convert.ToSingle( timer.getTime() );
+      }
+    }
+
+    private void OpenLogFileIfEnabled()
+    {
+      string logOverride = IO.Environment.GetLogFileOverride();
+      if ( logOverride != null )
+        agx.Logger.instance().openLogfile( logOverride, true, true );
+      else if ( m_simulation != null && LogEnabled && !string.IsNullOrEmpty( LogPath ) )
+        agx.Logger.instance().openLogfile( LogPath.Trim(),
+                                           true,
+                                           true );
+    }
+
+    private class LogAdapter
+    {
+      private agx.LoggerSubscriber m_subscriber;
+      private agx.LoggerSubscriberMessageVector m_messages;
+
+      public LogLevel LogLevel { get; set; }
+      public bool DisableMeshCreationWarnings { get; set; }
+
+      public LogAdapter( Simulation sim, LogLevel level, bool disableMeshCreateWarnings )
+      {
+        LogLevel = level;
+        m_subscriber = new agx.LoggerSubscriber();
+        m_messages = new agx.LoggerSubscriberMessageVector();
+        DisableMeshCreationWarnings = disableMeshCreateWarnings;
+        sim.StepCallbacks.PostStepForward += PrintLoggerMessages;
+      }
+
+      public void RemoveFromSimulation( Simulation sim )
+      {
+        sim.StepCallbacks.PostStepForward -= PrintLoggerMessages;
+      }
+
+      public void PrintLoggerMessages()
+      {
+        m_subscriber.getMessages( m_messages, true );
+        foreach ( var message in m_messages )
+          Log( message.first, message.second );
+      }
+
+      private void Log( int level, string message )
+      {
+        if ( level < (int)LogLevel ) return;
+
+        if ( DisableMeshCreationWarnings && message.StartsWith( "Trimesh creation warnings" ) )
+          return;
+
+        switch ( (LogLevel)level ) {
+          case LogLevel.Info:
+          case LogLevel.Debug:
+            Debug.Log( message );
+            break;
+          case LogLevel.Warning:
+            Debug.LogWarning( message );
+            break;
+          case LogLevel.Error:
+            Debug.LogError( message );
+            break;
+          default:
+            break;
+        }
+      }
+    }
+
+    private class MemoryAllocations
+    {
+      public enum Section
+      {
+        Begin,
+        PreStepForward,
+        PreSynchronizeTransforms,
+        StepForward,
+        PostSynchronizeTransforms,
+        PostStepForward
+      }
+
+      public static MemoryAllocations Instance { get; set; }
+
+      public static void Snap( Section section )
+      {
+        if ( Instance == null )
+          return;
+
+        Instance[ section ] = GC.GetTotalMemory( false );
+      }
+
+      public static string GetDeltaString( Section section )
+      {
+        if ( Instance == null || section == Section.Begin )
+          return string.Empty;
+
+        var delta    = Instance[ section ] - Instance[ section - 1 ];
+        var absDelta = System.Math.Abs( delta );
+        var suffix   = " B";
+        var value    = Convert.ToSingle( delta );
+        if ( absDelta > 512 * 1024 ) {
+          suffix = "MB";
+          value = Convert.ToSingle( delta ) / ( 1024.0f * 1024.0f );
+        }
+        else if ( absDelta > 512 ) {
+          suffix = "KB";
+          value = Convert.ToSingle( delta ) / 1024.0f;
+        }
+
+        return string.Format( "{0:0.#} {1}", value, suffix );
+      }
+
+      private long[] m_allocations = new long[ Enum.GetValues( typeof( Section ) ).Length ];
+
+      public long this[ Section section ]
+      {
+        get { return m_allocations[ (int)section ]; }
+        set { m_allocations[ (int)section ] = value; }
+      }
+    }
+
+    private class StatisticsWindowData : IDisposable
+    {
+      public int Id { get; private set; }
+      public Rect Rect { get; set; }
+      public Rect RectMemoryEnabled { get; set; }
+      public Font Font { get; private set; }
+      public GUIStyle LabelStyle { get; set; }
+      public GUIStyle WindowStyle { get; set; }
+      public float ManagedStepForward { get; set; }
+
+      public StatisticsWindowData( Rect rect, Rect rectMemoryEnabled )
+      {
+        agx.Statistics.instance().setEnable( true );
+        Id = GUIUtility.GetControlID( FocusType.Passive );
+        Rect = rect;
+        RectMemoryEnabled = rectMemoryEnabled;
+
+        MemoryAllocations.Instance = new MemoryAllocations();
+        ManagedStepForward = 0.0f;
+
+        var fonts = Font.GetOSInstalledFontNames();
+        foreach ( var font in fonts )
+          if ( font == "Consolas" )
+            Font = Font.CreateDynamicFontFromOSFont( font, 12 );
+
+        LabelStyle = Utils.GUI.Align( Utils.GUI.Skin.label, TextAnchor.MiddleLeft );
+        if ( Font != null )
+          LabelStyle.font = Font;
+
+        WindowStyle = new GUIStyle( Utils.GUI.Skin.window );
+        if ( Font != null ) {
+          WindowStyle.font = Font;
+          // Increased top padding so that the title name isn't too far up.
+          WindowStyle.padding.top = 22;
+        }
+      }
+
+      public void Dispose()
+      {
+        MemoryAllocations.Instance = null;
+        agx.Statistics.instance().setEnable( false );
+      }
+    }
+
+    private StatisticsWindowData m_statisticsWindowData = null;
+
+    private static void StatisticsLabel( string name,
+                                         agx.TimingInfo time,
+                                         Color color,
+                                         GUIStyle style,
+                                         bool isHeader = false )
+    {
+      StatisticsLabel( name, time.current, color, style, isHeader );
+    }
+
+    private static void StatisticsLabel( string name,
+                                         double time,
+                                         Color color,
+                                         GUIStyle style,
+                                         bool isHeader = false )
+    {
+      var labelStr = Utils.GUI.AddColorTag( name, color ) + time.ToString( "0.00" ).PadLeft( 5, ' ' ) + " ms";
+      GUILayout.Label( Utils.GUI.MakeLabel( labelStr, isHeader ? 14 : 12, isHeader ), style );
+    }
+
+    private static void StatisticsLabel( string name,
+                                         string data,
+                                         Color color,
+                                         GUIStyle style,
+                                         bool isHeader = false )
+    {
+      GUILayout.Label( Utils.GUI.MakeLabel( Utils.GUI.AddColorTag( name, color ) + data ), style );
+    }
+
+    private static void StatisticsLabel( string name,
+                                         Color color,
+                                         GUIStyle style,
+                                         bool isHeader = false )
+    {
+      GUILayout.Label( Utils.GUI.MakeLabel( Utils.GUI.AddColorTag( name, color ), isHeader ? 14 : 12, isHeader ), style );
+    }
+
+    private Utils.MovingAverage<double> m_simTime,
+                                        m_spaceTime,
+                                        m_dynamicsSystemTime,
+                                        m_preCollideTime,
+                                        m_preTime,
+                                        m_postTime,
+                                        m_lastTime,
+                                        m_contactEventsTime,
+                                        m_managedStepForward;
+    private void InitializeMovingAverages( int size )
+    {
+      m_simTime = new MovingAverage<double>( size );
+      m_spaceTime = new MovingAverage<double>( size );
+      m_dynamicsSystemTime = new MovingAverage<double>( size );
+      m_preCollideTime = new MovingAverage<double>( size );
+      m_preTime = new MovingAverage<double>( size );
+      m_postTime = new MovingAverage<double>( size );
+      m_lastTime = new MovingAverage<double>( size );
+      m_contactEventsTime = new MovingAverage<double>( size );
+      m_managedStepForward = new MovingAverage<double>( size );
+    }
+
+    protected void OnGUI()
+    {
+      if ( m_simulation == null )
+        return;
+
+      if ( !NativeHandler.Instance.HasValidLicense ) {
+        GUILayout.Window( GUIUtility.GetControlID( FocusType.Passive ),
+                          new Rect( new Vector2( 16,
+                                                 0.5f * Screen.height ),
+                                    new Vector2( Screen.width - 32, 32 ) ),
+                          id => {
+                            // Invalid license if initialized.
+                            if ( NativeHandler.Instance.Initialized ) {
+                              var status = agx.Runtime.instance().getStatus();
+                              // Assume no license file was found if status == "" when the
+                              // license manager resets any state in agx.Runtime.
+                              if ( string.IsNullOrEmpty( status ) )
+                                status = LicenseManager.LicenseInfo.IsParsed && !string.IsNullOrEmpty( LicenseManager.LicenseInfo.Status ) ?
+                                           LicenseManager.LicenseInfo.Status :
+                                           $"No valid license file found under \"{Directory.GetCurrentDirectory()}\".";
+                              GUILayout.Label( Utils.GUI.MakeLabel( "AGX Dynamics: " + status,
+                                                                    Color.red,
+                                                                    18,
+                                                                    true ),
+                                               Utils.GUI.Skin.label );
+                            }
+                            else
+                              GUILayout.Label( Utils.GUI.MakeLabel( "AGX Dynamics: Errors occurred during initialization of AGX Dynamics.",
+                                                                    Color.red,
+                                                                    18,
+                                                                    true ),
+                                               Utils.GUI.Skin.label );
+                          },
+                          "AGX Dynamics not properly initialized",
+                          Utils.GUI.Skin.window );
+
+        return;
+      }
+
+      if ( m_statisticsWindowData == null )
+        return;
+
+      if ( m_simTime == null || m_simTime.Size != StatisticsMovingAverageCount )
+        InitializeMovingAverages( StatisticsMovingAverageCount );
+
+      var simColor      = Color.Lerp( Color.white, Color.blue, 0.2f );
+      var spaceColor    = Color.Lerp( Color.white, Color.green, 0.2f );
+      var dynamicsColor = Color.Lerp( Color.white, Color.yellow, 0.2f );
+      var eventColor    = Color.Lerp( Color.white, Color.cyan, 0.2f );
+      var dataColor     = Color.Lerp( Color.white, Color.magenta, 0.2f );
+      var memoryColor   = Color.Lerp( Color.white, Color.red, 0.2f );
+
+      var labelStyle         = m_statisticsWindowData.LabelStyle;
+      var stats              = agx.Statistics.instance();
+
+      m_simTime.Add( stats.getTimingInfo( "Simulation", "Step forward time" ).current );
+      m_spaceTime.Add( stats.getTimingInfo( "Simulation", "Collision-detection time" ).current );
+      m_dynamicsSystemTime.Add( stats.getTimingInfo( "Simulation", "Dynamics-system time" ).current );
+      m_preCollideTime.Add( stats.getTimingInfo( "Simulation", "Pre-collide event time" ).current );
+      m_preTime.Add( stats.getTimingInfo( "Simulation", "Pre-step event time" ).current );
+      m_postTime.Add( stats.getTimingInfo( "Simulation", "Post-step event time" ).current );
+      m_lastTime.Add( stats.getTimingInfo( "Simulation", "Last-step event time" ).current );
+      m_contactEventsTime.Add( stats.getTimingInfo( "Simulation", "Triggering contact events" ).current );
+
+      var numBodies      = m_system.getRigidBodies().Count;
+      var numShapes      = m_space.getGeometries().Count;
+      var numConstraints = m_system.getConstraints().Count +
+                           m_space.getGeometryContacts().Count;
+      var numParticles   = Native.getParticleSystem() != null ?
+                             (int)Native.getParticleSystem().getNumParticles() :
+                             0;
+
+      m_managedStepForward.Add( m_statisticsWindowData.ManagedStepForward );
+
+      GUILayout.Window( m_statisticsWindowData.Id,
+                        DisplayMemoryAllocations ? m_statisticsWindowData.RectMemoryEnabled : m_statisticsWindowData.Rect,
+                        id => {
+                          StatisticsLabel( "Total time:            ", m_simTime.Value + m_lastTime.Value, simColor, labelStyle, true );
+                          StatisticsLabel( "  - Pre-collide step:      ", m_preCollideTime.Value, eventColor, labelStyle );
+                          StatisticsLabel( "  - Collision detection:   ", m_spaceTime.Value, spaceColor, labelStyle );
+                          StatisticsLabel( "  - Contact event:         ", m_contactEventsTime.Value, eventColor, labelStyle );
+                          StatisticsLabel( "  - Pre step:              ", m_preTime.Value, eventColor, labelStyle );
+                          StatisticsLabel( "  - Dynamics solvers:      ", m_dynamicsSystemTime.Value, dynamicsColor, labelStyle );
+                          StatisticsLabel( "  - Post step:             ", m_postTime.Value, eventColor, labelStyle );
+                          StatisticsLabel( "  - Last step:             ", m_lastTime.Value, eventColor, labelStyle );
+                          StatisticsLabel( "Data:                  ", dataColor, labelStyle, true );
+                          StatisticsLabel( "  - Update frequency:      ", (int)( 1.0f / TimeStep + 0.5f ) + " Hz", dataColor, labelStyle );
+                          StatisticsLabel( "  - Number of bodies:      ", numBodies.ToString(), dataColor, labelStyle );
+                          StatisticsLabel( "  - Number of shapes:      ", numShapes.ToString(), dataColor, labelStyle );
+                          StatisticsLabel( "  - Number of constraints: ", numConstraints.ToString(), dataColor, labelStyle );
+                          StatisticsLabel( "  - Number of particles:   ", numParticles.ToString(), dataColor, labelStyle );
+                          GUILayout.Space( 12 );
+                          StatisticsLabel( "StepForward (managed):", memoryColor, labelStyle, true );
+                          StatisticsLabel( "  - Step forward:          ",
+                                           m_managedStepForward.Value.ToString( "0.00" ).PadLeft( 5, ' ' ) + " ms",
+                                           memoryColor,
+                                           labelStyle );
+                          if ( !DisplayMemoryAllocations )
+                            return;
+                          StatisticsLabel( "Allocations (managed):", memoryColor, labelStyle, true );
+                          StatisticsLabel( "  - Pre step callbacks:    ",
+                                           MemoryAllocations.GetDeltaString( MemoryAllocations.Section.PreStepForward ).PadLeft( 6, ' ' ),
+                                           memoryColor,
+                                           labelStyle );
+                          StatisticsLabel( "  - Pre synchronize:       ",
+                                           MemoryAllocations.GetDeltaString( MemoryAllocations.Section.PreSynchronizeTransforms ).PadLeft( 6, ' ' ),
+                                           memoryColor,
+                                           labelStyle );
+                          StatisticsLabel( "  - Step forward:          ",
+                                           MemoryAllocations.GetDeltaString( MemoryAllocations.Section.StepForward ).PadLeft( 6, ' ' ),
+                                           memoryColor,
+                                           labelStyle );
+                          StatisticsLabel( "  - Post synchronize:      ",
+                                           MemoryAllocations.GetDeltaString( MemoryAllocations.Section.PostSynchronizeTransforms ).PadLeft( 6, ' ' ),
+                                           memoryColor,
+                                           labelStyle );
+                          StatisticsLabel( "  - Post step callbacks:   ",
+                                           MemoryAllocations.GetDeltaString( MemoryAllocations.Section.PostStepForward ).PadLeft( 6, ' ' ),
+                                           memoryColor,
+                                           labelStyle );
+                        },
+                        "AGX Dynamics statistics",
+                        m_statisticsWindowData.WindowStyle );
+    }
+
+    public void OpenInNativeViewer()
+    {
+      if ( m_simulation == null ) {
+        Debug.Log( "Unable to open simulation in native viewer.\nEditor has to be in play mode (or paused)." );
+        return;
+      }
+
+      string path = Application.dataPath + @"/AGXUnityTemp/";
+      if ( !System.IO.Directory.Exists( path ) )
+        System.IO.Directory.CreateDirectory( path );
+
+      var tmpFilename    = "openedInViewer.agx";
+      var tmpLuaFilename = "openedInViewer.agxLua";
+      var camera         = Camera.main ?? Camera.allCameras.FirstOrDefault();
+
+      if ( camera == null ) {
+        Debug.Log( "Unable to find a camera - failed to open simulation in native viewer." );
+        return;
+      }
+
+      var cameraData = new
+      {
+        Eye               = camera.transform.position.ToHandedVec3().ToVector3(),
+        Center            = ( camera.transform.position + 25.0f * camera.transform.forward ).ToHandedVec3().ToVector3(),
+        Up                = camera.transform.up.ToHandedVec3().ToVector3(),
+        NearClippingPlane = camera.nearClipPlane,
+        FarClippingPlane  = camera.farClipPlane,
+        FOV               = camera.fieldOfView
+      };
+
+      var luaFileContent = @"
+assert( requestPlugin( ""agxOSG"" ) )
+function buildScene( sim, app, root )
+  assert( agxOSG.readFile( """ + path + tmpFilename + @""", sim, root ) )
+
+  local cameraData             = app:getCameraData()
+  cameraData.eye               = agx.Vec3( " + cameraData.Eye.x + ", " + cameraData.Eye.y + ", " + cameraData.Eye.z + @" )
+  cameraData.center            = agx.Vec3( " + cameraData.Center.x + ", " + cameraData.Center.y + ", " + cameraData.Center.z + @" )
+  cameraData.up                = agx.Vec3( " + cameraData.Up.x + ", " + cameraData.Up.y + ", " + cameraData.Up.z + @" )
+  cameraData.nearClippingPlane = " + cameraData.NearClippingPlane + @"
+  cameraData.farClippingPlane  = " + cameraData.FarClippingPlane + @"
+  cameraData.fieldOfView       = " + cameraData.FOV + @"
+  app:applyCameraData( cameraData )
+
+  return root
+end
+if arg and not alreadyInitialized then
+  alreadyInitialized = true
+  local app = agxOSG.ExampleApplication()
+  _G[ ""buildScene"" ] = buildScene
+  app:addScene( arg[ 0 ], ""buildScene"", string.byte( ""1"" ) )
+  local argParser = agxIO.ArgumentParser()
+  argParser:readArguments( arg )
+  if app:init( argParser ) then
+    app:run()
+  end
+end";
+
+      if ( !SaveToNativeFile( path + tmpFilename ) ) {
+        Debug.Log( "Unable to start viewer.", this );
+        return;
+      }
+
+      System.IO.File.WriteAllText( path + tmpLuaFilename, luaFileContent );
+
+      try {
+        Process.Start( new ProcessStartInfo()
+        {
+          FileName = @"luaagx.exe",
+          Arguments = path + tmpLuaFilename + @" -p --renderDebug 1",
+          UseShellExecute = false
+        } );
+      }
+      catch ( System.Exception e ) {
+        Debug.LogException( e );
+      }
+    }
+  }
+}

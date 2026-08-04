@@ -1,0 +1,12 @@
+{
+    "platforms": [
+        "claude"
+    ],
+    "optionalSkills": [],
+    "skillVersions": [
+        {
+            "id": "unity-mcp-workflow",
+            "version": "1.0.1"
+        }
+    ]
+}

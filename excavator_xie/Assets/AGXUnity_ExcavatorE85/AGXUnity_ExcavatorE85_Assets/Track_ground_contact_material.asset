@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fa76d302d537f3643a58c6cab77fb092, type: 3}
+  m_Name: Track_ground_contact_material
+  m_EditorClassIdentifier: 
+  m_material1: {fileID: 11400000, guid: 71def2bcaccdeef4596567f8cf53e482, type: 2}
+  m_material2: {fileID: 11400000, guid: 0f7e299e8fe903d4a81188408e2e6d33, type: 2}
+  m_frictionModel: {fileID: 11400000, guid: e9cc8492d69b0c648936bb75f1fe2e66, type: 2}
+  m_youngsModulus: 1e+9
+  m_surfaceViscosity: {x: 0.000001, y: 0.000001}
+  m_frictionCoefficients: {x: 1.3, y: 0.5}
+  m_restitution: 0
+  m_damping: 0.095
+  m_adhesiveForce: 0
+  m_adhesiveOverlap: 0
+  m_useContactArea: 1
+  m_contactReductionMode: 1
+  m_contactReductionLevel: 2
+  m_wireFrictionCoefficients: {x: 0.41667, y: 0.41667}

@@ -1,0 +1,25 @@
+# Unity
+Library/
+Temp/
+Logs/
+UserSettings/
+*.blob
+*.dwlt
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# ROS2 build/install
+ex_ws/build/
+ex_ws/install/
+ex_ws/log/
+
+# Data
+ex_ws/data/*.npz
+ex_ws/data/*.npy
+
+# IDE
+.vscode/
+.idea/

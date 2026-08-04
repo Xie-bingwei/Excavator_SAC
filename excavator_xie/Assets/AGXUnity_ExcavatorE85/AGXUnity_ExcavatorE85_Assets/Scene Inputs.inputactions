@@ -1,0 +1,94 @@
+{
+    "name": "Scene Inputs",
+    "maps": [
+        {
+            "name": "Scene Inputs",
+            "id": "bb6b55c5-4b2f-4116-bd40-22673a525139",
+            "actions": [
+                {
+                    "name": "Reset",
+                    "type": "Button",
+                    "id": "bd342fc0-c6b5-4586-a97d-4cd606e858ee",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "FPSCamera",
+                    "type": "Button",
+                    "id": "15dcd3ae-8ce8-46e9-ab39-4962ba7536ad",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Quit",
+                    "type": "Button",
+                    "id": "9af2042d-aec5-420c-8cb5-acfd9c864934",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "SwitchCamera",
+                    "type": "Button",
+                    "id": "ee0ec2d1-b116-4f4d-814b-047f8d2fc053",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "86bd300f-21eb-48aa-aac8-b2129c44cf94",
+                    "path": "<Keyboard>/space",
+                    "interactions": "Hold",
+                    "processors": "",
+                    "groups": "",
+                    "action": "SwitchCamera",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "12efd0d6-af9d-459b-b432-db945c5603f9",
+                    "path": "<Keyboard>/escape",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Quit",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "1e256b9f-dd17-4e70-a641-69691abb278b",
+                    "path": "<Keyboard>/f1",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "FPSCamera",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "a31db9ce-1429-464e-988f-785d26343c03",
+                    "path": "<Keyboard>/z",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Reset",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}

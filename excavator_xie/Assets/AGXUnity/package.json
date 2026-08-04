@@ -1,0 +1,17 @@
+{
+    "name": "com.algoryx.agxunity",
+    "version": "5.5.1+7fa02be3",
+    "platform": "ubuntu-22.04",
+    "platformName": "Ubuntu 22.04 LTS",
+    "displayName": "AGX Dynamics for Unity",
+    "description": "Plugin for the multi-purpose physics simulation engine AGX Dynamics from Algoryx Simulation AB.",
+    "unity": "2021.2",
+    "agx": "2.41.1.2",
+    "dependencies": {},
+    "keywords": [],
+    "author": {
+        "name": "Algoryx Simulation AB",
+        "email": "sales@algoryx.com",
+        "url": "https://www.algoryx.com"
+    }
+}

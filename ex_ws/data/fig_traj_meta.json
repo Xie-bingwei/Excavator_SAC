@@ -1,0 +1,32 @@
+{
+  "description": "CBF轨迹安全化数据 (三组d_safe)",
+  "n_waypoints": 64,
+  "pipe_pos": [
+    7.5,
+    0.0,
+    -1.2
+  ],
+  "lambda": 0.3,
+  "runs": {
+    "d0.5": {
+      "d_safe": 0.5,
+      "n_iters": 181
+    },
+    "d1.0": {
+      "d_safe": 1.0,
+      "n_iters": 200
+    },
+    "d1.5": {
+      "d_safe": 1.5,
+      "n_iters": 200
+    }
+  },
+  "files": {
+    "traj_original": "traj_original.npy         — shape (64,3)",
+    "traj_safe_d0.5": "traj_safe_d0.5.npy        — shape (64,3)",
+    "traj_safe_d1.0": "traj_safe_d1.0.npy        — shape (64,3)",
+    "traj_safe_d1.5": "traj_safe_d1.5.npy        — shape (64,3)",
+    "safety_history_d*": "safety_history_d*.npy     — shape (N_iter,3) cols=[J_obs, J_smooth, J_total]",
+    "pipe_info": "pipe_info.npy             — [pipe_x, pipe_y, pipe_z, lam, max_iter]"
+  }
+}

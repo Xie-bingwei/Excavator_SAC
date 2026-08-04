@@ -1,0 +1,20 @@
+{
+  "name": "com.algoryx.agxunity.machines.e85",
+  "version": "1.1.1",
+  "license": "Apache-2.0",
+  "displayName": "Excavator E85",
+  "description": "This is a machine package containing an Excavator modelled in AGXUnity",
+  "unity": "2021.2",
+  "unityRelease": "0b5",
+  "documentationUrl": "https://us.download.algoryx.se/AGXUnity/documentation/current/examples.html#e85-excavator",
+  "changelogUrl": "https://us.download.algoryx.se/AGXUnity/documentation/current/changelog.html",
+  "licensesUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+  "dependencies": {
+    "com.unity.inputsystem": "1.4.2"
+  },
+  "author": {
+    "name": "Algoryx Simulation",
+    "email": "support@algoryx.com",
+    "url": "https://www.algoryx.com"
+  }
+}

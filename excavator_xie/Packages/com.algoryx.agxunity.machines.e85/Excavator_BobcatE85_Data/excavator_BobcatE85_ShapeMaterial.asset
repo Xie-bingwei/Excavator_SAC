@@ -1,0 +1,120 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-8858382930899369538
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd8393dfcda7614ba44f4d1ad3f0f29, type: 3}
+  m_Name: BodyMaterial
+  m_EditorClassIdentifier: 
+  m_density: 1000
+  m_youngsWireStretch: 6e+10
+  m_youngsWireBend: 6e+10
+--- !u!114 &-8634773748404451126
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd8393dfcda7614ba44f4d1ad3f0f29, type: 3}
+  m_Name: Unknown Material
+  m_EditorClassIdentifier: 
+  m_density: 1000
+  m_youngsWireStretch: 6e+10
+  m_youngsWireBend: 6e+10
+--- !u!114 &-3175025859969422617
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd8393dfcda7614ba44f4d1ad3f0f29, type: 3}
+  m_Name: IdlerMaterial
+  m_EditorClassIdentifier: 
+  m_density: 1000
+  m_youngsWireStretch: 6e+10
+  m_youngsWireBend: 6e+10
+--- !u!114 &-2859527333209740206
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd8393dfcda7614ba44f4d1ad3f0f29, type: 3}
+  m_Name: BladeMaterial
+  m_EditorClassIdentifier: 
+  m_density: 1000
+  m_youngsWireStretch: 6e+10
+  m_youngsWireBend: 6e+10
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d2135dc92f817349a5e8f6ac3477155, type: 3}
+  m_Name: excavator_BobcatE85_ShapeMaterial
+  m_EditorClassIdentifier: 
+  m_type: 0
+--- !u!114 &1927970489896829260
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd8393dfcda7614ba44f4d1ad3f0f29, type: 3}
+  m_Name: SprocketMaterial
+  m_EditorClassIdentifier: 
+  m_density: 1000
+  m_youngsWireStretch: 6e+10
+  m_youngsWireBend: 6e+10
+--- !u!114 &3249455915798500275
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd8393dfcda7614ba44f4d1ad3f0f29, type: 3}
+  m_Name: Excavator_RollerMaterial
+  m_EditorClassIdentifier: 
+  m_density: 1000
+  m_youngsWireStretch: 6e+10
+  m_youngsWireBend: 6e+10
+--- !u!114 &6912486565689108020
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd8393dfcda7614ba44f4d1ad3f0f29, type: 3}
+  m_Name: BucketMaterial
+  m_EditorClassIdentifier: 
+  m_density: 1000
+  m_youngsWireStretch: 6e+10
+  m_youngsWireBend: 6e+10
