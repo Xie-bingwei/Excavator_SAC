@@ -1,0 +1,7 @@
+{
+  "total_steps": 200000,
+  "warmup_buffer": null,
+  "pipe_freq": 0.3,
+  "device": "cuda",
+  "elapsed_min": 8.5
+}

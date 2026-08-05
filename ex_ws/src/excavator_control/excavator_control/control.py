@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -27,7 +28,7 @@ if _has_display:
     import matplotlib.pyplot as plt
 
 class APF_Controller(Node):
-    def __init__(self):
+    def __init__(self, sac_model_path: str = ''):
         super().__init__('apf_controller')
 
         self.K_att = 300.0
@@ -77,12 +78,36 @@ class APF_Controller(Node):
         self.q_smooth = None
         # ── Z-based 铲斗卷斗: 入土即卷, 用硬目标 ──
         self._z_curl_active = False
+        # ── RL 底盘角速度 (来自 Unity JointState.velocity[1..3]) ──
+        self.base_angvel = np.zeros(3) # rad/s, base_footprint angular velocity
         # ZMP 稳定裕度 (方案B: 监测稳定性)
         self.alpha_margin = 1.0
         self.cycle_count = 0
         self.cycle_data: list[dict] = []  # {(s, d_pipe, p_x, p_z)}
 
         self._saved = False
+
+        # ── SAC model (optional, ONNX format) ──
+        self._sac = None
+        if sac_model_path:
+            if sac_model_path.endswith('.zip'):
+                sac_model_path = sac_model_path.replace('.zip', '.onnx')
+            _ws = Path(__file__).resolve().parents[4]  # src → ex_ws (symlink时 parents[3]=build/)
+            if not (_ws / 'rl').is_dir():
+                _ws = Path(__file__).resolve().parents[3]  # fallback: source tree
+            # Add workspace root + subpackages to path
+            if str(_ws) not in sys.path:
+                sys.path.insert(0, str(_ws))
+            for _p in ['rl/env', 'rl/train', 'rl/inference', 'rl']:
+                _d = str(_ws / _p)
+                if _d not in sys.path:
+                    sys.path.insert(0, _d)
+            os.environ.setdefault('TRAJECTORY_GENERATING', '1')
+            from rl.inference.sac_wrapper import SACWrapper
+            self._sac = SACWrapper(sac_model_path)
+            self.get_logger().info(f'SAC model loaded: {sac_model_path}')
+        else:
+            self.get_logger().info('SAC disabled (pure APF mode)')
         self.get_logger().info(
             'APF Controller ready '
             f'mode=one_shot_done_no_reset pid={os.getpid()} '
@@ -293,6 +318,17 @@ class APF_Controller(Node):
 
         q_des = q + delta_q
 
+        # ── SAC RL 残差 (2026-08-05) ──
+        if self._sac is not None:
+            _d_pipe = float(np.sqrt((p_tip[0] - self.pipe_pos[0])**2 +
+                                    (p_tip[2] - self.pipe_pos[2])**2))
+            _obs = self._sac.build_obs(
+                q, p_tip, float(s_star), _d_pipe,
+                self.alpha_margin, self.base_angvel,
+            )
+            _dq_sac = self._sac.predict(_obs)
+            q_des += _dq_sac
+
         # 关节指令低通滤波 (q1–q3). q4 卷斗激活时跳过滤波, 直接跟目标.
         if self.q_smooth is None:
             self.q_smooth = q_des.copy()
@@ -329,7 +365,8 @@ class APF_Controller(Node):
             f'endpoint_err={endpoint_err:.3f}m '
             f'd_pipe={d_pipe:.2f}m α_m={self.alpha_margin:.3f} '
             f'z={p_tip[2]:+.2f} q4={q[3]:+.3f} '
-            f'|tau|={np.linalg.norm(tau_total):.0f}',
+            f'|tau|={np.linalg.norm(tau_total):.0f} '
+            f'ω={self.base_angvel[2]:+.4f}',
             throttle_duration_sec=0.2
         )
         if terminal_decision.force_terminal_target:
@@ -354,6 +391,12 @@ class APF_Controller(Node):
                 q[i] = msg.position[idx]
             except ValueError:
                 return None
+        # ── RL 数据 (2026-08-04) ──
+        # velocity[1..3]=base_angvel(rad/s), 来自 Unity RigidBody.AngularVelocity
+        if len(msg.velocity) >= 4:
+            self.base_angvel = np.array([float(x) for x in msg.velocity[1:4]])
+        else:
+            self.base_angvel = np.zeros(3)
         # 还原为 AGX raw 角 (FK 标定模型基于 raw)
         return q - self.ros_offset
 
@@ -367,8 +410,14 @@ class APF_Controller(Node):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--sac-model', type=str, default='',
+                    help='Path to trained SAC model .zip for RL inference')
+    args, _ = ap.parse_known_args()
+
     rclpy.init()
-    node = APF_Controller()
+    node = APF_Controller(sac_model_path=args.sac_model)
 
     try:
         try:

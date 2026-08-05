@@ -50,6 +50,9 @@ public class Excavator922FJointStatePublisher : MonoBehaviour
     private MethodInfo _clockMethod;
     private float _publishInterval; // 缓存发布间隔
 
+    // ── RL 数据 (2026-08-04): 自动发现, 不改场景 ──
+    private AGXUnity.RigidBody _baseFootprintRb;
+
     void Start()
     {
         // 获取 ROS 连接实例
@@ -58,7 +61,6 @@ public class Excavator922FJointStatePublisher : MonoBehaviour
         ros.RegisterPublisher<JointStateMsg>(topicName);
 
         // === 【新增】在启动时缓存 Clock 的 Now() 方法 ===
-        // 这样不用每一帧都去查找方法，性能更好
         if (clockSource != null)
         {
             _clockMethod = clockSource.GetType().GetMethod(
@@ -66,6 +68,10 @@ public class Excavator922FJointStatePublisher : MonoBehaviour
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
             );
         }
+
+        // ── RL 数据: 自动发现, 不改场景 ──
+        var baseGo = GameObject.Find("base_footprint");
+        if (baseGo != null) _baseFootprintRb = baseGo.GetComponent<AGXUnity.RigidBody>();
     }
 
     // Update is called once per frame
@@ -187,7 +193,21 @@ public class Excavator922FJointStatePublisher : MonoBehaviour
             // msg.position[i] = agxJoints[i].GetCurrentAngle();
         }
 
-        // 发送消息
+        // ── RL 数据: base angular velocity → velocity[1..3] ──
+        msg.velocity = new double[jointCount];
+        msg.effort   = new double[jointCount];
+        if (_baseFootprintRb != null && _baseFootprintRb.Native != null)
+        {
+            try
+            {
+                var av = _baseFootprintRb.AngularVelocity;
+                msg.velocity[1] = (double)av.x;
+                msg.velocity[2] = (double)av.y;
+                msg.velocity[3] = (double)av.z;
+            }
+            catch (System.Exception) {}
+        }
+
         ros.Publish(topicName, msg);
     }
 
