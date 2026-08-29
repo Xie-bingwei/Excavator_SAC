@@ -389,7 +389,7 @@ public class Excavator922FTrackController : ScriptComponent
       // 这里的 Compliance (柔性) 不能太大，否则手臂会软绵绵的
       // 但也不能太小(0)，否则物理引擎会因为“绝对刚性”而抖动
       lc.Compliance = 1e-9f; 
-      lc.Damping = 0.1f;
+      lc.Damping = 0.5f;
   }
   // ================================= 【新增结束】 =================================
 
