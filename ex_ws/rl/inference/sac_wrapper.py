@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 class SACWrapper:
     """ONNX inference + obs normalization (from pre-exported .npz)."""
 
-    action_clip = 0.05
+    action_clip = 0.01
 
     def __init__(self, model_path: str):
         # ── Load ONNX session ──
@@ -51,7 +51,9 @@ class SACWrapper:
             [self._output_name],
             {self._input_name: norm.reshape(1, -1)},
         )[0]
-        delta = np.clip(out.flatten(), -self.action_clip, self.action_clip)
+        # out ∈ [-1, 1] is the tanh-squashed action mean; scale by action_max.
+        # (clipping to ±0.05 instead of scaling would mis-scale any non-saturated action.)
+        delta = (out.flatten() * self.action_clip).astype(np.float32)
         self._action_prev = delta.copy()
         return delta
 

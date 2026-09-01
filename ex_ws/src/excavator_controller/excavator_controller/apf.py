@@ -132,7 +132,7 @@ def pipe_repulsive_force(p_tip: np.ndarray, pipe_pos: np.ndarray,
     d = float(np.sqrt(dx * dx + dz * dz))
 
     if d >= rho or d < 1e-6:
-        return np.zeros(3)
+        return np.zeros(3) 
 
     f_mag = K * (1.0 / d - 1.0 / rho) / (d * d)
     return f_mag * np.array([dx, 0.0, dz]) / d

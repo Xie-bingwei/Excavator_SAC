@@ -56,7 +56,7 @@ SAC_CONFIG = dict(
     learning_rate=5e-5,           # 极低 lr → 不偏离 APF 安全基线
     batch_size=1024,              # 更大 batch → 梯度稳定
     tau=0.005,                    # 软更新
-    gamma=0.99,
+    gamma=0.999,                  # 长 episode(~1000步)下保留终局奖励信号
     # ── 探索 ──
     ent_coef='auto',
     target_entropy=-4.0,          # -dim(action)
@@ -210,6 +210,15 @@ def train(
     model_path = save_dir / 'sac_final'
     model.save(str(model_path))
     venv.save(str(save_dir / 'vec_normalize.pkl'))
+
+    # ── Export obs normalization stats for the inference wrapper ──
+    # (sac_wrapper.py loads obs_norm.npz; keep it in sync with vec_normalize.pkl)
+    _obs_rms = venv.obs_rms
+    np.savez(
+        str(save_dir / 'obs_norm.npz'),
+        mean=_obs_rms.mean.astype(np.float32),
+        std=np.sqrt(_obs_rms.var).clip(1e-6).astype(np.float32),
+    )
 
     # ── Convergence plot ──
     _plot_convergence(save_dir)

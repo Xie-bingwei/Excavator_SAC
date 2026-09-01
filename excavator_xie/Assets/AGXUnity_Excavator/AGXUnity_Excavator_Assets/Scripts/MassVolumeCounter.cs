@@ -2,6 +2,8 @@ using UnityEngine;
 using AGXUnity;
 using UnityEngine.UI;
 using System.Linq;
+using Unity.Robotics.ROSTCPConnector;
+using RosMessageTypes.Std;
 
 /* 土壤与挖掘过程的物理模拟
  * 1.跟踪铲斗内动态质量
@@ -36,6 +38,10 @@ public class MassVolumeCounter : ScriptComponent
   float m_excavatedMass = 0;  // 累计挖掘质量
   float m_massInBucket = 0;  // 当前铲斗内的动态质量
 
+ // ── ROS: 在线 RL 奖励信号 ──
+  private ROSConnection m_ros;
+  private Float64Msg m_volumeMsg     = new Float64Msg();
+  private Float64Msg m_bucketMassMsg = new Float64Msg();
   Text m_infoText;
 
   private agxControl.EventSensor sensor;
@@ -51,20 +57,16 @@ public class MassVolumeCounter : ScriptComponent
     ResetAction.Enable();
 #endif
 
-    // 初始化传感器与地形
-    m_geometry = GetComponent<AGXUnity.Collide.Shape>().GetInitialized<AGXUnity.Collide.Shape>().NativeGeometry;
-    m_geometry.setSensor( true );
-
-    sensor = new agxControl.EventSensor( m_geometry );
-    GetSimulation().add( sensor );
-
     var texts = GetComponentsInChildren<Text>();
     m_infoText = texts.First( t => t.name == "Information" );
 
     Debug.Assert( m_infoText );
 
-    // Initialize the heights of the terrain
-    ComputeTerrainHeights();   // 初始化地形为小山丘
+    // ── ROS: 发布土量 + 订阅地形重置 ──
+    m_ros = ROSConnection.GetOrCreateInstance();
+    m_ros.RegisterPublisher<Float64Msg>("/unity/soil_volume");
+    m_ros.RegisterPublisher<Float64Msg>("/unity/bucket_mass");
+    m_ros.Subscribe<BoolMsg>("/unity/reset_terrain", OnResetTerrain);
 
     return base.Initialize();
 
@@ -135,6 +137,19 @@ public class MassVolumeCounter : ScriptComponent
 
   }
 
+ // ── ROS 重置: 收到 /unity/reset_terrain 时清零并恢复地形 ──
+  void OnResetTerrain(BoolMsg msg)
+  {
+    if (msg.data)
+      ResetEpisode();
+  }
+
+  void ResetEpisode()
+  {
+    m_excavatedVolume = 0;
+    m_excavatedMass = 0;
+    m_terrain.ResetHeights();   // 重置地形到初始形状
+  }
 
   // Update is called once per frame
   void Update()
@@ -147,39 +162,28 @@ public class MassVolumeCounter : ScriptComponent
     if (Input.GetKeyDown(ResetTerrainKey))
 #endif
     {
-      m_excavatedVolume = 0;
-      m_excavatedMass = 0;
-      m_excavatedVolume = 0;
-
-      ComputeTerrainHeights();
+      ResetEpisode();
     }
 
     Debug.Assert( m_terrain != null );
 
     // 每帧更新，核心逻辑
-    m_massInBucket = (float)m_terrain.Native.getDynamicMass( shovel.Native ); // getDynamicMass返回附着在铲斗上的土壤动态质量
+    m_massInBucket = (float)shovel.Native.getInnerSoilMass(); // 铲斗内土壤质量(kg)
     string info = string.Format( "Mass in bucket: \t\t{0:f} kg\n", m_massInBucket );
 
-    // Get all particles that are in contact with our sensor geometry
-    var ids = sensor.getContactingParticleIds();  // 获取所有与传感器碰撞的粒子ID
-
-    // 取得粒子系统
-    var ps = GetSimulation().getParticleSystem();
-
-    // 通过粒子系统的getParticle(id)获得单个粒子, 可读属性：p.getMass()粒子质量，p.getRadius()粒子半径
-    foreach ( var id in ids ) {
-      var p = ps.getParticle(id);
-      m_excavatedMass += (float)p.getMass();
-      float r = (float)p.getRadius();
-      m_excavatedVolume += r * r * r * ( 4 / 3 ) * Mathf.PI;
-
-      // 移除粒子，累加后销毁粒子，模拟挖掉的土壤
-      ps.destroyParticle( p );
-    }
+    // 用 AGX 原生 API 直接取土壤量, 不再依赖传感器几何体
+    m_excavatedVolume = (float)shovel.Native.getInnerSoilBulkVolume(); // 铲斗内土壤体积 m³
+    m_excavatedMass   = (float)shovel.Native.getInnerSoilMass();      // 铲斗内土壤质量 kg
 
     // Update text
     info += string.Format( "Excavated mass: \t{0:f} kg\n", m_excavatedMass );
     info += string.Format( "Excavated volume: \t{0:f} m^3", m_excavatedVolume );
     m_infoText.text = info;
+
+    // ── ROS: 发布土量 (在线 RL 奖励信号) ──
+    m_volumeMsg.data = m_excavatedVolume;
+    m_bucketMassMsg.data = m_massInBucket;
+    m_ros.Publish("/unity/soil_volume", m_volumeMsg);
+    m_ros.Publish("/unity/bucket_mass", m_bucketMassMsg);
   }
 }

@@ -324,7 +324,7 @@ class APF_Controller(Node):
                                     (p_tip[2] - self.pipe_pos[2])**2))
             _obs = self._sac.build_obs(
                 q, p_tip, float(s_star), _d_pipe,
-                self.alpha_margin, self.base_angvel,
+                self.alpha_margin, np.zeros(3),
             )
             _dq_sac = self._sac.predict(_obs)
             q_des += _dq_sac

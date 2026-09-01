@@ -145,7 +145,12 @@
     <Compile Include="Assets/AGXUnity_ExcavatorE85/AGXUnity_ExcavatorE85_Assets/Scipts/ExcavatorE85SceneController.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Assets/TextMesh Pro/Shaders/TMPro.cginc" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF-Mobile Overlay.shader" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_Bitmap.shader" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Compute/HashTableBase.cginc" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMPro_Mobile.cginc" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF SSD.shader" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Built-In/CableAndWire.shader" />
     <None Include="Assets/AGXUnity/Plugins/x86_64/LICENSE-AGX.txt" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Compute/ConstantsAndStructs.cginc" />
@@ -153,14 +158,30 @@
     <None Include="Assets/AGXUnity/Resources/Shaders/Shader Graph/ParticleBuffer.cginc" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Built-In/ParticleImpostor.shader" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Compute/HashTableRead.cginc" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF-Surface-Mobile.shader" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Compute/ParticleUpsample.compute" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF-Surface.shader" />
     <None Include="Assets/AGXUnity/Plugins/x86_64/agxDotNet.dll" />
+    <None Include="Assets/TextMesh Pro/Sprites/EmojiOne Attribution.txt" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_Bitmap-Custom-Atlas.shader" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF.shader" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF-Mobile SSD.shader" />
+    <None Include="Assets/TextMesh Pro/Resources/LineBreaking Leading Characters.txt" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMPro_Properties.cginc" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMPro_Surface.cginc" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Compute/MoveParticles.compute" />
     <None Include="Assets/AGXUnity/Plugins/x86_64/agx/Components/agx/Web/lib/external/flot-0.8.3/LICENSE.txt" />
+    <None Include="Assets/TextMesh Pro/Resources/LineBreaking Following Characters.txt" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Compute/HashTableEntry.cginc" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF-Mobile Masking.shader" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF Overlay.shader" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_Bitmap-Mobile.shader" />
+    <None Include="Assets/TextMesh Pro/Fonts/LiberationSans - OFL.txt" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Built-In/UpsampledParticle.shader" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Compute/HashTableRW.cginc" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF-Mobile.shader" />
     <None Include="Assets/AGXUnity/Resources/Shaders/Built-In/PointCloudShader.shader" />
+    <None Include="Assets/TextMesh Pro/Shaders/TMP_Sprite.shader" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

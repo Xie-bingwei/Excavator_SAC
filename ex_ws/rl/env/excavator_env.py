@@ -83,12 +83,22 @@ class ExcavatorEnvConfig:
     max_delta_normal: tuple = (0.06, 0.04, 0.05, 0.08)    # s >= 0.68
     max_delta_dig: tuple = (0.06, 0.03, 0.04, 0.08)        # s < 0.68
 
+    # ── Real arm physics limit ──
+    # 真实 LockController 是"比例柔度(compliance≈0.15) + 最大速度上限(~0.006 rad/步)"。
+    # 只加硬限速会制造死区(动作梯度为 0), 策略学不到东西还发散。
+    # 正确模型: 指令增量先按 0.15 比例缩放(平滑梯度), 再被 0.006 上限截断(防瞬移)。
+    compliance: float = 0.15    # LockController 柔度: 臂每步实现指令增量的 15%
+    real_vel: float = 0.006     # rad/step, 实际可达关节速度上限
+
     # ── Bucket curl (Z-based) ──
     z_curl_entry: float = -0.03
     q4_curl_in_soil: float = -1.4
 
     # ── RL action bounds ──
-    action_max: float = 0.05       # ±0.05 rad per joint
+    # 0.01 (从 0.05 收紧): SAC 的 Q 函数会对没见过的动作外推高估, 导致策略饱和到满量程。
+    # 把动作空间收到 ±0.01, 即使策略饱和也只是 ±0.01 小残差 (远小于 APF 的 0.06 指令),
+    # 不会反过来晃动机臂/打断挖掘。RL 仍是"微调"角色, 不是主导。
+    action_max: float = 0.01       # ±0.01 rad per joint
 
     # ── Terminal config ──
     terminal_entry_s: float = 0.93
@@ -98,17 +108,19 @@ class ExcavatorEnvConfig:
     hold_timeout: float = 8.0
 
     # ── Episode limits ──
-    max_steps: int = 600
+    max_steps: int = 1500
 
     # ── Reward weights (tuned for offline training) ──
-    w_progress: float = 15.0       # 轨迹前进 (主要回报源)
+    w_progress: float = 3.0        # 弱前进信号 (总增量≈s_final, 与速度无关, 不被钻空子)
+    w_track: float = 3.0           # 跟踪误差惩罚 — 仅超过阈值才罚 (episode~500步, 累加后需与终端+100同量级)
+    track_thresh: float = 0.70     # path_err 超过此值视为"明显脱轨"
     w_cycle: float = 100.0         # 循环完成
     w_soil: float = 80.0           # 土中切卷奖励: 每米 X 后退位移 (兜土)
     w_stability: float = 3.0       # α_margin < 0.5 惩罚
     w_tipover: float = 10.0       # base angular vel 惩罚 (online only)
-    w_pipe: float = 10.0           # 管线接近惩罚 (轨迹已安全, 追踪误差是主因)
-    w_smooth: float = 0.1          # 动作平滑
-    w_magnitude: float = 0.02      # 动作幅度惩罚
+    w_pipe: float = 3.0            # 管线接近惩罚 (与 w_track 同量级, 避免 522 步累积后反超跟踪主项)
+    w_smooth: float = 0.5          # 动作平滑
+    w_magnitude: float = 5.0       # 动作幅度惩罚 (逼残差保持小; real_vel 上限已让大动作无效, 这里再加显式惩罚)
     alpha_thresh: float = 0.5
 
     @property
@@ -311,17 +323,15 @@ class ExcavatorEnv(gym.Env):
         # 5f. Torque → desired position
         q_des_apf = self._q + self.cfg.K_imp * tau_total * self.cfg.dt
 
-        # ── 6. Apply RL action: q_des = q_des_apf + Δq ──
-        q_des = q_des_apf + action
-
-        # ── 7. Position limit + smoothing (simplified physics) ──
+        # ── 6. Position limit on APF delta only ──
+        # RL action is added AFTER the clip so it always has authority —
+        #  matches control.py, where `q_des += _dq_sac` comes after the clip.
         if s_star >= 0.68:
             max_delta = self.cfg.max_delta_normal_np
         else:
             max_delta = self.cfg.max_delta_dig_np
 
-        delta_q = np.clip(q_des - self._q, -max_delta, max_delta)
-        q_des = self._q + delta_q
+        delta_q = np.clip(q_des_apf - self._q, -max_delta, max_delta)
 
         # q4 direct drive (same as control.py)
         if self._z_curl_active or decision.force_terminal_target:
@@ -329,7 +339,17 @@ class ExcavatorEnv(gym.Env):
             q4_step = 0.10
             delta_q[3] = np.clip(q4_err, -q4_step, +q4_step)
 
-        q_des = self._q + delta_q
+        q_des = self._q + delta_q + action
+
+        # ── 7. Real arm physics (LockController compliance + speed cap) ──
+        # Proportional compliance (0.15) gives the action a smooth gradient near the
+        # trajectory; the speed cap (0.006) matches reality and prevents teleport/rush.
+        # A hard clip alone would zero the action gradient (dead zone) → policy drifts.
+        delta_real = np.clip(
+            self.cfg.compliance * (q_des - self._q),
+            -self.cfg.real_vel, self.cfg.real_vel,
+        )
+        q_des = self._q + delta_real
 
         # Low-pass filter
         if self._q_smooth is None:
@@ -395,9 +415,14 @@ class ExcavatorEnv(gym.Env):
         cfg = self.cfg
         r = 0.0
 
-        # Progress: reward forward movement along trajectory
-        s_prev = self._s_prev or 0.0
-        r += cfg.w_progress * max(0.0, s_star - s_prev)
+        # Forward progress: weak dense signal (speed-independent: sums to ~s_final)
+        r += cfg.w_progress * max(0.0, s_star - (self._s_prev or 0.0))
+
+        # Tracking error: penalize ONLY when clearly off-track.
+        # path_err has a ~0.5 m floor from trajectory discretization even for
+        # perfect tracking, so an unthresholded penalty would reward "finishing
+        # fast" instead of "tracking well". Penalize > threshold only.
+        r -= cfg.w_track * max(0.0, path_err - cfg.track_thresh)
 
         # Cycle complete: bonus + soil pull reward (土中切卷兜土)
         r += cfg.w_cycle * cycle_bonus
